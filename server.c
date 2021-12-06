@@ -15,32 +15,38 @@ int *rcv_thread(void *arg);
 int warn(char *s);
 int init_squeue(void);
 int init_cqueue(void);
-int proc_obj(struct q_entry *rcv, int *member, int *memcnt);
+int proc_obj(struct q_entry *rcv);
 char *substr(int s, int e, char *str);
 int enter(char *msg, int signal);
 
+pthread_mutex_t mutex;
 int memcnt = 0;
-int member[3];
+int member[2];
 char *msg;
+int rcv_signal = 0;
 
 int main(void) {
 	int pid;
-	pthread_t st_id[THREAD_NUM], ct_id[THREAD_NUM];
-	int ckey[] = {CQKEY + 1, CQKEY + 2, CQKEY + 3};
-	int skey[] = {SQKEY + 1, SQKEY + 2, SQKEY + 3};
+	pthread_t ct_id[THREAD_NUM], st_id;				// thread identifier
+	int ckey[THREAD_NUM] = {CQKEY + 1, CQKEY + 2};	// rcv queue key
+	int skey = SQKEY + 1;							// snd queue key
 
 	printf("Davinci Code Server Launched...\n");
-	
-	for (int i = 0; i < THREAD_NUM; i++) {
-		if (pthread_create(&ct_id, NULL, rcv_thread, (void*)ckey[i]) != 0) {
-			perror("thread create error");
-			return -1;
-		}
 
-		if (pthread_create(&st_id, NULL, serve, (void*)skey[i]) != 0) {
+	pthread_mutex_init(&mutex, NULL);
+	
+	// rcv thread create
+	for (int i = 0; i < THREAD_NUM; i++) {
+		if (pthread_create(&ct_id[i], NULL, rcv_thread, (void*)ckey[i]) != 0) {
 			perror("thread create error");
 			return -1;
 		}
+	}
+
+	// snd thread create
+	if (pthread_create(&st_id, NULL, serve, (void*)skey) != 0) {
+		perror("thread create error");
+		return -1;
 	}
 
 	for (int i = 0; i < THREAD_NUM; i++) {
@@ -48,18 +54,19 @@ int main(void) {
 			perror("thread join error");
 			return -1;
 		}
-
-		if (pthread_join(st_id[i], NULL) != 0) {
-			perror("thread join error");
-			return -1;
-		}
 	}
 
+	if (pthread_join(st_id, NULL) != 0) {
+		perror("thread join error");
+		return -1;
+	}
+
+	pthread_mutex_destroy(&mutex);
 	exit(pid != -1 ? 0 : 1);
 }
 
 int *rcv_thread(void *arg) {
-	int mlen, r_pid;
+	int mlen, r_qid;
 	struct q_entry r_entry;
 	key_t ckey = *((key_t*)arg);
 
@@ -68,13 +75,15 @@ int *rcv_thread(void *arg) {
 	}
 
 	for (;;) {
-		if (mlen = msgrcv(r_qid, &r_entry, MAXOBN, (-1 * MAXPRIOR), MSG_NOERROR)) == -1) {
+		if (mlen = msgrcv(r_qid, &r_entry, MAXOBN, (-1 * MAXSIGN), MSG_NOERROR) == -1) {
 			perror("msgrcv failed");
 		}
 		else {
 			r_entry.mtext[mlen] = '\0';
 			
+			pthread_mutex_lock(&mutex);
 			proc_obj(&r_entry);
+			pthread_mutex_unlock(&mutex);
 		}
 	}
 }
@@ -83,6 +92,29 @@ int *snd_thread(void *arg) {
 	int len, s_qid;
 	struct q_entry s_entry;
 	key_t skey = *((key_t*)arg);
+
+	if ((len = strlen(msg)) > MAXOBN) {
+		warn("string too long");
+		return (-1);
+	}
+
+	if ((s_qid = init_squeue()) == -1) {
+		return (-1);
+	}
+
+	if (rcv_signal != 0) {
+		s_entry.mtype = (long)rcv_signal;
+		strncpy(s_entry.mtext, msg, MAXOBN);
+
+		rcv_signal = 0;
+		if (msgsnd(s_qid, &s_entry, strlen(msg), 0) == -1) {
+			perror("msgsnd failed");
+			return (-1);
+		}
+		else {
+			return (0);
+		}
+	}
 }
 
 int enter(char *msg, int signal) {
@@ -94,7 +126,7 @@ int enter(char *msg, int signal) {
 		return (-1);
 	}
 
-	if (signal > MAXPRIOR || signal < 0) {
+	if (signal > MAXSIGN || signal < 0) {
 		warn("invalid signal");
 		return (-1);
 	}
@@ -125,16 +157,14 @@ int proc_obj(struct q_entry *rcv) {
 		member[memcnt] = atoi(rcv->mtext);
 
 		printf("system: %d entered\n", member[memcnt]);
-		if (enter(rcv->mtext, 1) < 0) {
-			warn("send failure");
-		}
-		(*memcnt)++;
+		sprintf(msg, "%d", member[memcnt]);
+		rcv_signal = 1;
 
-		printf("system: %d members\n", *memcnt);
-		sprintf(tmp, "%d", cnt);
-		if (enter(tmp, 2) < 0) {
-			warn("send failure");
-		}
+		memcnt++;
+
+		printf("system: %d members\n", memcnt);
+		sprintf(msg, "%d", memcnt);
+		rcv_signal = 2;
 	}
 	else if (rcv->mtype == 2) {
 		printf("mtype: 2\n");

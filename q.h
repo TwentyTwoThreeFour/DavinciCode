@@ -4,10 +4,12 @@
 #include <string.h>
 #include <errno.h>
 
-#define QKEY (key_t)0105
+#define SQKEY (key_t)60070	// server basic key
+#define CQKEY (key_t)60074	// client basic key
 #define QPERM 0660
 #define MAXOBN 100
-#define MAXPRIOR 10
+#define MAXINDEX 4
+#define MAXSIGN 10
 
 struct q_entry {
 	long mtype;

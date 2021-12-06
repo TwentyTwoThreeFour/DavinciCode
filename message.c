@@ -3,39 +3,75 @@
 #include <unistd.h>
 #include "q.h"
 
-void run_game(void);
-int enter(char *objname, int priority);
+int run_game(key_t skey, key_t ckey);
+int enter(key_t ckey, char *objname, int priority);
 int warn(char *s);
-int init_queue(void);
+int init_squeue(void);
+int init_cqueue(void);
 int proc_obj(struct q_entry *msg);
 
 int main() {
-	int signal;
+	int signal, id;
+	key_t skey, ckey;
+	int select;
+
+	for (;;) {
+		printf("==========[DavinciCode]==========\n");
+		printf("1. 멤버 1\n");
+		printf("2. 멤버 2\n");
+		printf("3. 멤버 3\n");
+		printf("=================================\n");
+		printf("멤버를 선택하세요(1~3): ");
+		scanf("%d", &select);
+
+		if (select > 3 || select < 1) {
+			continue;
+		}
+	}
 	
-	
+	if (argc != 2) {
+		fprintf(stderr, "usage: %s objname priority\n", argv[0]);
+		exit(1);
+	}
+	if ((id = atoi(argv[1])) <= 0 || priority > MAXINDEX) {
+		warn("invalid id");
+		exit(2);
+	}
+
+	skey = SQKEY + atoi(id);
+	ckey = CQKEY + atoi(id);
+
+	run_game(skey, ckey);
 	exit(0);
 }
 
-void run_game(void) {
-	int mlen, qid;
+int run_game(key_t skey, key_t ckey) {
+	int mlen, r_qid;
 	struct q_entry s_entry, r_entry; 
+	char *pid;
 
-	if ((qid = init_queue()) == -1) {
+	if ((r_qid = init_squeue(skey)) == -1) {
 		return (-1);
 	}
 
-	enter(getpid(), 1);
+	sprintf(pid, "%d", getpid());
+	if (enter(ckey, pid, 1) < 0) {
+		warn("send failure");
+	}
 	printf("Davinci Code에 오신 것을 환영합니다.\n");
 
-	pritnf("다른 멤버를 기다리는 중입니다...\n");
+	printf("다른 멤버를 기다리는 중입니다...\n");
+	sleep(1);
 	for (;;) {
-		if ((mlen = msgrcv(qid, &r_entry, MAXOBN, 1, MSG_NOERROR)) == -1) {
+		if ((mlen = msgrcv(r_qid, &r_entry, MAXOBN, (-1 * MAXPRIOR), MSG_NOERROR)) == -1) {
 			perror("msgrcv failed");
 		}
 		else {
 			r_entry.mtext[mlen] = '\0';
 
-			proc_obj(&r_entry);
+			if (proc_obj(&r_entry) == -1) {
+				break;
+			}
 		}
 	}
 }
@@ -51,14 +87,18 @@ int proc_obj(struct q_entry *msg) {
 	else if (msg->mtype == 2) {
 		printf("현재 멤버: %s\n", msg->mtext);
 		if (atoi(msg->mtext) > 1) {
+			char *start;
+			printf("게임을 시작하려면 start를 입력해주세요: ");
+			scanf("%s", start);
 
+			if (strcmp("start", start) == 0) {
+				return -1;
+			}
 		}
 	}
-
-	printf("priority: %ld name: %s\n", msg->mtype, msg->mtext);
 }
 
-int enter(char *objname, int priority) {
+int enter(key_t ckey, char *objname, int signal) {
 	int len, s_qid;
 	struct q_entry s_entry;
 
@@ -67,16 +107,16 @@ int enter(char *objname, int priority) {
 		return (-1);
 	}
 
-	if (priority > MAXPRIOR || priority < 0) {
-		warn("invalid priority level");
+	if (signal > MAXSIGN || signal < 0) {
+		warn("invalid signal");
 		return (-1);
 	}
 
-	if ((s_qid = init_queue()) == -1) {
+	if ((s_qid = init_cqueue(ckey)) == -1) {
 		return (-1);
 	}
 
-	s_entry.mtype = (long)priority;
+	s_entry.mtype = (long)signal;
 	strncpy(s_entry.mtext, objname, MAXOBN);
 
 	if(msgsnd(s_qid, &s_entry, len, 0) == -1) {
@@ -92,10 +132,20 @@ int warn(char *s) {
 	fprintf(stderr, "warning: %s\n", s);
 }
 
-int init_queue(void) {
+int init_squeue(key_t skey) {
 	int queue_id;
 
-	if ((queue_id = msgget(QKEY, IPC_CREAT|QPERM)) == -1) {
+	if ((queue_id = msgget(skey, IPC_CREAT|QPERM)) == -1) {
+		perror("msgget failed");
+	}
+	
+	return (queue_id);
+}
+
+int init_cqueue(key_t ckey) {
+	int queue_id;
+
+	if ((queue_id = msgget(ckey, IPC_CREAT|QPERM)) == -1) {
 		perror("msgget failed");
 	}
 	

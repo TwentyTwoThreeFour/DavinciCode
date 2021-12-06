@@ -1,87 +1,102 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <pthread.h>
 #include "q.h"
 
-int serve(void);
+#define THREAD_NUM 3
+
+struct user {
+	int hands[13];
+};
+
+int *serve(void *arg);
+int *rcv_thread(void *arg);
 int warn(char *s);
-int init_queue(void);
+int init_squeue(void);
+int init_cqueue(void);
 int proc_obj(struct q_entry *rcv, int *member, int *memcnt);
 char *substr(int s, int e, char *str);
 int enter(char *msg, int signal);
 
+int memcnt = 0;
+int member[3];
+
 int main(void) {
 	int pid;
+	pthread_t st_id[THREAD_NUM], ct_id[THREAD_NUM];
+	int ckey[] = {CQKEY + 1, CQKEY + 2, CQKEY + 3};
+	int skey[] = {SQKEY + 1, SQKEY + 2, SQKEY + 3};
 
-	switch (pid = fork()) {
-		case 0:
-			serve();
-			break;
-		case -1:
-			warn("fork to start server failed");
-			break;
-		default:
-			printf("server process pid is %d\n", pid);
+	printf("Davinci Code Server Launched...\n");
+	
+	for (int i = 0; i < THREAD_NUM; i++) {
+		if (pthread_create(&ct_id, NULL, rcv_thread, (void*)ckey[i]) != 0) {
+			perror("thread create error");
+			return -1;
+		}
+
+		if (pthread_create(&st_id, NULL, serve, (void*)skey[i]) != 0) {
+			perror("thread create error");
+			return -1;
+		}
 	}
+
+	for (int i = 0; i < THREAD_NUM; i++) {
+		if (pthread_join(ct_id[i], NULL) != 0) {
+			perror("thread join error");
+			return -1;
+		}
+
+		if (pthread_join(st_id[i], NULL) != 0) {
+			perror("thread join error");
+			return -1;
+		}
+	}
+
 	exit(pid != -1 ? 0 : 1);
 }
 
-int warn(char *s) {
-	fprintf(stderr, "warning: %s\n", s);
-}
+int *rcv_thread(void *arg) {
+	int mlen, r_pid;
+	struct q_entry r_entry;
+	key_t ckey = *((key_t*)arg);
 
-int init_queue(void) {
-	int queue_id;
-
-	if ((queue_id = msgget(QKEY, IPC_CREAT|QPERM)) == -1) {
+	if ((r_qid = msgget(ckey, IPC_CREAT|QPERM)) == -1) {
 		perror("msgget failed");
 	}
 
-	return (queue_id);
-}
-
-int serve(void) {
-	int mlen, r_qid;
-	struct q_entry r_entry;
-	int member[4];
-	int memcnt = 0;
-
-	if ((r_qid = init_queue()) == -1) {
-		return (-1);
-	}
-
 	for (;;) {
-		if ((mlen = msgrcv(r_qid, &r_entry, MAXOBN, (-1 * MAXPRIOR), MSG_NOERROR)) == -1) {
+		if (mlen = msgrcv(r_qid, &r_entry, MAXOBN, (-1 * MAXPRIOR), MSG_NOERROR)) == -1) {
 			perror("msgrcv failed");
-			return (-1);
 		}
 		else {
 			r_entry.mtext[mlen] = '\0';
 
-			proc_obj(&r_entry, member, &memcnt);
+			
+			proc_obj(&r_entry);
 		}
 	}
 }
 
-int proc_obj(struct q_entry *rcv, int *member, int *memcnt) {
+int proc_obj(struct q_entry *rcv) {
 	/* receive signal
 	 * 1: 클라이언트 진입 
-	 * 2: 블록 색 선정
-	 * 3: 조커 위치 선정(필요 시) */
+	 * 2: 게임 시작 여부
+	 * 3: 블록 색 선정
+	 * 4: 조커 위치 선정(필요 시) */
 	if (rcv->mtype == 1) {
-		member[*memcnt] = atoi(rcv->mtext);
-		char *msg;
+		member[memcnt] = atoi(rcv->mtext);
 
-		printf("system: %d entered\n", member[*memcnt]);
-		sprintf(msg, "%d", member[*memcnt]);
-		if (enter(msg, 1) < 0) {
+		printf("system: %d entered\n", member[memcnt]);
+		if (enter(rcv->mtext, 1) < 0) {
 			warn("send failure");
 		}
 		(*memcnt)++;
 
 		printf("system: %d members\n", *memcnt);
-		sprintf(msg, "%d", *memcnt);
-		if (enter(msg, 2) < 0) {
+		sprintf(tmp, "%d", cnt);
+		if (enter(tmp, 2) < 0) {
 			warn("send failure");
 		}
 	}
@@ -111,7 +126,7 @@ int enter(char *msg, int signal) {
 		return (-1);
 	}
 
-	if ((s_qid = init_queue()) == -1) {
+	if ((s_qid = init_squeue()) == -1) {
 		return (-1);
 	}
 
@@ -125,4 +140,18 @@ int enter(char *msg, int signal) {
 	else {
 		return (0);
 	}
+}
+
+int warn(char *s) {
+	fprintf(stderr, "warning: %s\n", s);
+}
+
+int init_squeue(void) {
+	int queue_id;
+
+	if ((queue_id = msgget(SQKEY, IPC_CREAT|QPERM)) == -1) {
+		perror("msgget failed");
+	}
+	
+	return (queue_id);
 }

@@ -21,6 +21,7 @@ int enter(char *msg, int signal);
 
 int memcnt = 0;
 int member[3];
+char *msg;
 
 int main(void) {
 	int pid;
@@ -72,10 +73,45 @@ int *rcv_thread(void *arg) {
 		}
 		else {
 			r_entry.mtext[mlen] = '\0';
-
 			
 			proc_obj(&r_entry);
 		}
+	}
+}
+
+int *snd_thread(void *arg) {
+	int len, s_qid;
+	struct q_entry s_entry;
+	key_t skey = *((key_t*)arg);
+}
+
+int enter(char *msg, int signal) {
+	int len, s_qid;
+	struct q_entry s_entry;
+
+	if ((len = strlen(msg)) > MAXOBN) {
+		warn("string too long");
+		return (-1);
+	}
+
+	if (signal > MAXPRIOR || signal < 0) {
+		warn("invalid signal");
+		return (-1);
+	}
+
+	if ((s_qid = init_squeue()) == -1) {
+		return (-1);
+	}
+
+	s_entry.mtype = (long)signal;
+	strncpy(s_entry.mtext, msg, MAXOBN);
+
+	if (msgsnd(s_qid, &s_entry, strlen(msg), 0) == -1) {
+		perror("msgsnd failed");
+		return (-1);
+	}
+	else {
+		return (0);
 	}
 }
 
@@ -110,36 +146,6 @@ int proc_obj(struct q_entry *rcv) {
 char *substr(int s, int e, char *str) {
 	char *new = (char *)malloc(sizeof(char)*(e-s+2));
 	strncpy(new, str+s, e-s+1);
-}
-
-int enter(char *msg, int signal) {
-	int len, s_qid;
-	struct q_entry s_entry;
-
-	if ((len = strlen(msg)) > MAXOBN) {
-		warn("string too long");
-		return (-1);
-	}
-
-	if (signal > MAXPRIOR || signal < 0) {
-		warn("invalid signal");
-		return (-1);
-	}
-
-	if ((s_qid = init_squeue()) == -1) {
-		return (-1);
-	}
-
-	s_entry.mtype = (long)signal;
-	strncpy(s_entry.mtext, msg, MAXOBN);
-
-	if (msgsnd(s_qid, &s_entry, strlen(msg), 0) == -1) {
-		perror("msgsnd failed");
-		return (-1);
-	}
-	else {
-		return (0);
-	}
 }
 
 int warn(char *s) {

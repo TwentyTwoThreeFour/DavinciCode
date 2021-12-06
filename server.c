@@ -4,51 +4,52 @@
 #include <pthread.h>
 #include "q.h"
 
-#define THREAD_NUM 3
+#define CTHREAD_NUM 2
+#define QUEUE_NUM 2
 
-struct user {
-	int hands[13];
-};
+// struct user {
+// 	int hands[13];
+// };
 
-int *serve(void *arg);
-int *rcv_thread(void *arg);
+void *rcv_thread(void *arg);
+void *snd_thread(void *arg);
 int warn(char *s);
-int init_squeue(void);
+int init_squeue(key_t skey);
 int proc_obj(struct q_entry *rcv);
 char *substr(int s, int e, char *str);
-int enter(char *msg, int signal);
 
 pthread_mutex_t mutex;
 int memcnt = 0;
-int member[2];
+int member[3];
 char *msg;
-int rcv_signal = 0;
+long rcv_signal = 0;
 
 int main(void) {
 	int pid;
-	pthread_t ct_id[THREAD_NUM], st_id;				// thread identifier
-	int ckey[THREAD_NUM] = {CQKEY + 1, CQKEY + 2};	// rcv queue key
-	int skey = SQKEY + 1;							// snd queue key
+	pthread_t ct_id[CTHREAD_NUM], st_id;				// thread identifier
+	key_t ckey[] = {CQKEY + 1, CQKEY + 2};			// rcv queue key
+	key_t skey[] = {SQKEY + 1, SQKEY + 2};			// snd queue key
 
-	printf("Davinci Code Server Launched...\n");
-
+	printf("Davinci Code Server Launch...\n");
+	msg = (char*)malloc(sizeof(char)*MAXOBN);
 	pthread_mutex_init(&mutex, NULL);
 	
 	// rcv thread create
-	for (int i = 0; i < THREAD_NUM; i++) {
-		if (pthread_create(&ct_id[i], NULL, rcv_thread, (void*)ckey[i]) != 0) {
+	for (int i = 0; i < CTHREAD_NUM; i++) {
+		if (pthread_create(&(ct_id[i]), NULL, rcv_thread, (void*)(&ckey[i])) != 0) {
 			perror("thread create error");
 			return -1;
 		}
 	}
 
 	// snd thread create
-	if (pthread_create(&st_id, NULL, serve, (void*)skey) != 0) {
+	if (pthread_create(&st_id, NULL, snd_thread, (void*)skey) != 0) {
 		perror("thread create error");
 		return -1;
 	}
+	printf("complete create thread\n");
 
-	for (int i = 0; i < THREAD_NUM; i++) {
+	for (int i = 0; i < CTHREAD_NUM; i++) {
 		if (pthread_join(ct_id[i], NULL) != 0) {
 			perror("thread join error");
 			return -1;
@@ -61,25 +62,26 @@ int main(void) {
 	}
 
 	pthread_mutex_destroy(&mutex);
+	free(msg);
 	exit(pid != -1 ? 0 : 1);
 }
 
-int *rcv_thread(void *arg) {
+void *rcv_thread(void *arg) {
 	int mlen, r_qid;
 	struct q_entry r_entry;
-	key_t ckey = *((key_t*)arg);
-
+	key_t ckey;
+	ckey = *((key_t*)arg);
+	
 	if ((r_qid = msgget(ckey, IPC_CREAT|QPERM)) == -1) {
 		perror("msgget failed");
 	}
 
 	for (;;) {
-		if (mlen = msgrcv(r_qid, &r_entry, MAXOBN, (-1 * MAXSIGN), MSG_NOERROR) == -1) {
+		if ((mlen = msgrcv(r_qid, &r_entry, MAXOBN, 0, MSG_NOERROR)) == -1) {
 			perror("msgrcv failed");
 		}
 		else {
 			r_entry.mtext[mlen] = '\0';
-			
 			pthread_mutex_lock(&mutex);
 			proc_obj(&r_entry);
 			pthread_mutex_unlock(&mutex);
@@ -87,72 +89,52 @@ int *rcv_thread(void *arg) {
 	}
 }
 
-int *snd_thread(void *arg) {
-	int len, s_qid;
+void *snd_thread(void *arg) {
+	int len;
 	struct q_entry s_entry;
-	key_t skey = *((key_t*)arg);
-
-	if ((len = strlen(msg)) > MAXOBN) {
-		warn("string too long");
-		return (-1);
+	key_t skey[QUEUE_NUM];
+	int s_qid[QUEUE_NUM];
+	
+	for (int i = 0; i < QUEUE_NUM; i++) {
+		skey[i] = ((key_t*)arg)[i];
 	}
 
-	if ((s_qid = init_squeue()) == -1) {
-		return (-1);
-	}
-
-	if (rcv_signal != 0) {
-		s_entry.mtype = (long)rcv_signal;
-		strncpy(s_entry.mtext, msg, MAXOBN);
-
-		rcv_signal = 0;
-		if (msgsnd(s_qid, &s_entry, strlen(msg), 0) == -1) {
-			perror("msgsnd failed");
-			return (-1);
-		}
-		else {
-			return (0);
+	for (int i = 0; i < QUEUE_NUM; i++) {
+		if ((s_qid[i] = init_squeue(skey[i])) == -1) {
+			exit(1);
 		}
 	}
-}
 
-int enter(char *msg, int signal) {
-	int len, s_qid;
-	struct q_entry s_entry;
+	for (;;) {
+		pthread_mutex_lock(&mutex);
+		if (rcv_signal != 0) {
+			if ((len = strlen(msg)) > MAXOBN) {
+				warn("string too long");
+				exit(2);
+			}
 
-	if ((len = strlen(msg)) > MAXOBN) {
-		warn("string too long");
-		return (-1);
-	}
+			s_entry.mtype = (long)rcv_signal;
+			strncpy(s_entry.mtext, msg, MAXOBN);
 
-	if (signal > MAXSIGN || signal < 0) {
-		warn("invalid signal");
-		return (-1);
-	}
-
-	if ((s_qid = init_squeue()) == -1) {
-		return (-1);
-	}
-
-	s_entry.mtype = (long)signal;
-	strncpy(s_entry.mtext, msg, MAXOBN);
-
-	if (msgsnd(s_qid, &s_entry, strlen(msg), 0) == -1) {
-		perror("msgsnd failed");
-		return (-1);
-	}
-	else {
-		return (0);
+			for (int i = 0; i < QUEUE_NUM; i++) {
+				if (msgsnd(s_qid[i], &s_entry, len, 0) == -1) {
+					perror("msgsnd failed");
+					exit(3);
+				}
+			}
+			rcv_signal = 0;
+		}
+		pthread_mutex_unlock(&mutex);
 	}
 }
 
 int proc_obj(struct q_entry *rcv) {
 	/* receive signal
-	 * 1: 클라이언트 진입 
-	 * 2: 게임 시작 여부
+	 * 11: 클라이언트 진입 
+	 * 12: 게임 시작 여부
 	 * 3: 블록 색 선정
 	 * 4: 조커 위치 선정(필요 시) */
-	if (rcv->mtype == 1) {
+	if (rcv->mtype == 11) {
 		member[memcnt] = atoi(rcv->mtext);
 
 		printf("system: %d entered\n", member[memcnt]);
@@ -165,11 +147,11 @@ int proc_obj(struct q_entry *rcv) {
 		sprintf(msg, "%d", memcnt);
 		rcv_signal = 2;
 	}
-	else if (rcv->mtype == 2) {
-		printf("mtype: 2\n");
+	else if (rcv->mtype == 12) {
+		printf("%s", rcv->mtext);
 	}
 
-	printf("priority: %ld name: %s\n", rcv->mtype, rcv->mtext);
+	printf("signal: %ld msg: %s\n", rcv->mtype, rcv->mtext);
 }
 
 char *substr(int s, int e, char *str) {
@@ -181,10 +163,10 @@ int warn(char *s) {
 	fprintf(stderr, "warning: %s\n", s);
 }
 
-int init_squeue(void) {
+int init_squeue(key_t skey) {
 	int queue_id;
 
-	if ((queue_id = msgget(SQKEY, IPC_CREAT|QPERM)) == -1) {
+	if ((queue_id = msgget(skey, IPC_CREAT|QPERM)) == -1) {
 		perror("msgget failed");
 	}
 	

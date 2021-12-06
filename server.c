@@ -14,7 +14,6 @@ int *serve(void *arg);
 int *rcv_thread(void *arg);
 int warn(char *s);
 int init_squeue(void);
-int init_cqueue(void);
 int proc_obj(struct q_entry *rcv);
 char *substr(int s, int e, char *str);
 int enter(char *msg, int signal);

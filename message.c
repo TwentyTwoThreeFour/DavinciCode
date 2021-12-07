@@ -1,34 +1,50 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <pthread.h>
 #include "q.h"
 
-#define SIGINIT 0
-#define USERENTERED 1
+
+#define SIGINIT 0			// signal 초기화
+
+// from server signal
+#define USERENTERED 1		// 유저 입장
 #define MEMBERCNT 2
+#define STARTED 3
+#define TURN 4
 
+// to server signal
 #define SNDPID 11
-#define GAMESTART 12
+#define READY 12
+#define BLOCKCOLOR 13
+#define SELECTBLOCK 14
+#define GUESSBLOCK 15
+#define TURNCHANGE 16
 
+// internal signal
 #define USERFULL 21
+#define GAMESTART 22
+#define PLAY 23
 
 void *run_game(void *arg);
 void *rcv_thread(void *arg);
 void *snd_thread(void *arg);
 int warn(char *s);
-int proc_obj(struct q_entry *msg);
+int proc_rcv(struct q_entry *msg);
 
 pthread_mutex_t mutex;
-char *msg;
-long rcv_signal = 0; // 1 ~ 10: from server, 11 ~ 20: to server, 21 ~ 30: UI
+int msg;
+ // 1 ~ 10: from server, 11 ~ 20: to server, 21 ~ 30: interface
+long rcv_signal = 0;
+
+int turn = 0;
+int pid;
+int blocks[BLOCKNUM]; // 0 ~ 11: black, 12 ~ 23: white, 24: blackjoker, 25: whitejoker
+int user1[BLOCKNUM];
+int user2[BLOCKNUM];
+int userstatus;
 
 int main() {
 	int signal, select;
 	key_t skey, ckey;
 	pthread_t ct_id, st_id, gm_id;
 
-	msg = (char*)malloc(sizeof(char)*MAXOBN);
 	pthread_mutex_init(&mutex, NULL);
 
 	for (;;) {
@@ -50,11 +66,10 @@ int main() {
 	skey = SQKEY + select;
 	ckey = CQKEY + select;
 
-	sprintf(msg, "%d", getpid());
 	rcv_signal = SNDPID;
 
 	printf("게임 입장 중...\n");
-	sleep(3);
+	sleep(1);
 
 	// rcv thread create
 	if (pthread_create(&ct_id, NULL, rcv_thread, (void*)&skey) != 0) {
@@ -86,12 +101,12 @@ int main() {
 	}
 
 	pthread_mutex_destroy(&mutex);
-	free(msg);
 	exit(0);
 }
 
 void *run_game(void *arg) {
 	int start;
+	int blockcolor, oppoblock;
 	
 	printf("Davinci Code에 오신 것을 환영합니다.\n");
 
@@ -99,21 +114,154 @@ void *run_game(void *arg) {
 	sleep(1);
 	for (;;) {
 		pthread_mutex_lock(&mutex);
-		if (rcv_signal > 20) {
+		if (rcv_signal > 20) {		// internal signal 일 경우
 			switch (rcv_signal)
 			{
 			case USERFULL:
-				printf("게임을 시작하려면 1을 입력해주세요: ");
+				printf("게임을 준비하려면 1을 입력해주세요: ");
 				scanf("%d", &start);
 				if (start == 1) {
-					sprintf(msg, "start");
-					rcv_signal = GAMESTART;
+					rcv_signal = READY;
 				}
 				else {
 					printf("잘못 입력하셨습니다.\n");
 					continue;
 				}
 				break;
+			case GAMESTART:
+				printf("=====[블록 색 조합을 선택해주세요]=====\n");
+				printf("1. 흰색 4개\n");
+				printf("2. 흰색 3개, 검은색 1개\n");
+				printf("3. 흰색 2개, 검은색 2개\n");
+				printf("4. 흰색 1개, 검은색 3개\n");
+				printf("5. 검은색 4개\n");
+				printf("================================\n");
+				printf("선택: ");
+				scanf("%d", &blockcolor);
+				if (blockcolor >=1 && blockcolor <=5) {
+					msg = blockcolor;
+					rcv_signal = BLOCKCOLOR;
+				}
+				else {
+					printf("잘못 입력하셨습니다.\n");
+					continue;
+				}
+				break;
+			case PLAY:
+				if (pid == getpid()) {
+					if (userstatus < 4) {
+						printf("yours: ");
+						for (int i = 0; i < BLOCKNUM / 2; i++) {
+							printf("b%d ", user1[i]);
+							printf("w%d ", user1[i + 12]);
+						}
+						printf("\noppo's: ");
+						for (int i = 0; i < BLOCKNUM / 2; i++) {
+							printf("b%d ", user2[i]);
+							printf("w%d ", user2[i + 12]);
+						}
+						printf("\n");
+						if (userstatus == 1) {
+							for (;;) {
+								printf("--------------------------\n");
+								printf("어떤 색의 블록을 가져오시겠습니까?\n");
+								printf("1. black\n");
+								printf("2. white\n");
+								printf("--------------------------\n");
+								printf("입력: ");
+								scanf("%d", &blockcolor);
+								if (blockcolor == 1 || blockcolor == 2) {
+									msg = blockcolor;
+									rcv_signal = SELECTBLOCK;
+									break;
+								}
+							}
+						}
+						else if (userstatus == 2) {
+							for(;;) {
+								printf("--------------------------\n");
+								printf("상대 블록을 선택해주세요\n");
+								printf("1. black(0 ~ 11)\n");
+								printf("2. white(12 ~ 23)\n");
+								printf("--------------------------\n");
+								printf("입력: ");
+								scanf("%d", &oppoblock);
+								if (oppoblock >= 0 && oppoblock <= 23) {
+									msg = oppoblock;
+									rcv_signal = GUESSBLOCK;
+									break;
+								}
+							}
+						}
+						else if (userstatus == 3) {
+							if (msg == 1) {
+								printf("축하합니다! 정답입니다!\n");
+							}
+							else if (msg == 2) {
+								printf("아쉽네요.. 틀렸습니다.\n");
+							}
+							printf("턴이 상대에게로 넘어갑니다.\n");
+							rcv_signal = TURNCHANGE;
+						}
+					}
+					else if (userstatus >= 4) {
+						printf("yours: ");
+						for (int i = 0; i < BLOCKNUM / 2; i++) {
+							printf("b%d ", user2[i]);
+							printf("w%d ", user2[i + 12]);
+						}
+						printf("\noppo's: ");
+						for (int i = 0; i < BLOCKNUM / 2; i++) {
+							printf("b%d ", user1[i]);
+							printf("w%d ", user1[i + 12]);
+						}
+						printf("\n");
+						if (userstatus == 4) {
+							for (;;) {
+								printf("--------------------------\n");
+								printf("어떤 색의 블록을 가져오시겠습니까?\n");
+								printf("1. black\n");
+								printf("2. white\n");
+								printf("--------------------------\n");
+								printf("입력: ");
+								scanf("%d", &blockcolor);
+								if (blockcolor == 1 || blockcolor == 2) {
+									msg = blockcolor;
+									rcv_signal = SELECTBLOCK;
+									break;
+								}
+							}
+						}
+						else if (userstatus == 5) {
+							for(;;) {
+								printf("--------------------------\n");
+								printf("상대 블록을 선택해주세요\n");
+								printf("1. black(0 ~ 11)\n");
+								printf("2. white(12 ~ 23)\n");
+								printf("--------------------------\n");
+								printf("입력: ");
+								scanf("%d", &oppoblock);
+								if (oppoblock >= 0 && oppoblock <= 23) {
+									msg = oppoblock;
+									rcv_signal = GUESSBLOCK;
+									break;
+								}
+							}
+						}
+						else if (userstatus == 6) {
+							if (msg == 1) {
+								printf("축하합니다! 정답입니다!\n");
+							}
+							else if (msg == 2) {
+								printf("아쉽네요.. 틀렸습니다.\n");
+							}
+							printf("턴이 상대에게로 넘어갑니다.\n");
+							rcv_signal = TURNCHANGE;
+						}
+					}
+				}
+				else {
+				}
 			default:
 				break;
 			}
@@ -133,15 +281,11 @@ void *rcv_thread(void *arg) {
 	}
 
 	for (;;) {
-		if ((mlen = msgrcv(r_qid, &r_entry, MAXOBN, 0, MSG_NOERROR)) == -1) {
+		if ((mlen = msgrcv(r_qid, &r_entry, sizeof(struct q_entry), 0, MSG_NOERROR)) == -1) {
 			perror("msgrcv failed");
 		}
 		else {
-			r_entry.mtext[mlen] = '\0';
-			
-			pthread_mutex_lock(&mutex);
-			proc_obj(&r_entry);
-			pthread_mutex_unlock(&mutex);
+			proc_rcv(&r_entry);
 		}
 	}
 }
@@ -158,21 +302,19 @@ void *snd_thread(void *arg) {
 
 	for (;;) {
 		pthread_mutex_lock(&mutex);
-		if (rcv_signal > 10 && rcv_signal <= 20) {
-			if ((len = strlen(msg)) > MAXOBN) {
-				warn("string too long");
-				return (-1);
-			}
+		if (rcv_signal > 10 && rcv_signal <= 20) {		// to server signal일 경우
 
 			s_entry.mtype = (long)rcv_signal;
-			strncpy(s_entry.mtext, msg, len);
+			s_entry.pid = getpid();
+			s_entry.message = msg;
+			s_entry.userstatus = userstatus;
 
-			if (msgsnd(s_qid, &s_entry, len, 0) == -1) {
+			if (msgsnd(s_qid, &s_entry, sizeof(struct q_entry), 0) == -1) {
 				perror("msgsnd failed");
 				return (-1);
 			}
 			else {
-				printf("complete send: %s\n", s_entry.mtext);
+				printf("send complete sig: %d\n", rcv_signal);
 			}
 			rcv_signal = SIGINIT;
 		}
@@ -180,20 +322,46 @@ void *snd_thread(void *arg) {
 	}
 }
 
-int proc_obj(struct q_entry *rcv) {
+int proc_rcv(struct q_entry *rcv) {
 	/* receive signal
-	 * 1: 유저 입장 알림
-	 * 2: 인원 현황 알림
-	 * 3:  */
-	if (rcv->mtype == USERENTERED) {
-		printf("%s 님이 입장했습니다.\n", rcv->mtext);
-	}
-	else if (rcv->mtype == MEMBERCNT) {
-		printf("현재 멤버: %s\n", rcv->mtext);
-		if (atoi(rcv->mtext) > 1) {
-			sprintf(msg, "client ready...\n");
+	 * USERENTERED: 유저 입장 알림
+	 * MEMBERCNT: 인원 현황 알림
+	 * STARTED: 게임 시작 알림 
+	 * TRUN: 턴 시작 알림 */
+	switch (rcv->mtype)
+	{
+	case USERENTERED:
+		pthread_mutex_lock(&mutex);
+		printf("%d 님이 입장했습니다.\n", rcv->message);
+		pthread_mutex_unlock(&mutex);
+		break;
+	case MEMBERCNT:
+		pthread_mutex_lock(&mutex);
+		sleep(2);
+		printf("현재 멤버: %d\n", rcv->message);
+		if (rcv->message > 1) {
 			rcv_signal = USERFULL;
 		}
+		pthread_mutex_unlock(&mutex);
+		break;
+	case STARTED:
+		pthread_mutex_lock(&mutex);
+		rcv_signal = GAMESTART;
+		pthread_mutex_unlock(&mutex);
+		break;
+	case TURN:
+		pthread_mutex_lock(&mutex);
+		userstatus = rcv->userstatus;
+		pid = rcv->pid;
+		msg = rcv->message;
+		memcpy(blocks, rcv->blocks, sizeof(rcv->blocks));
+		memcpy(user1, rcv->user1, sizeof(rcv->user1));
+		memcpy(user2, rcv->user2, sizeof(rcv->user2));
+		rcv_signal = PLAY;
+		pthread_mutex_unlock(&mutex);
+		break;
+	default:
+		break;
 	}
 }
 

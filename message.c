@@ -152,13 +152,27 @@ void *run_game(void *arg) {
 					if (userstatus < 4) {
 						printf("yours: ");
 						for (int i = 0; i < BLOCKNUM / 2; i++) {
-							printf("b%d ", user1[i]);
-							printf("w%d ", user1[i + 12]);
+							if (user1[i] == 1 || user1[i] == 2) {
+								printf("B%d ", i);
+							}
+							if (user1[i + 12] == 1 || user1[i + 12] == 2) {
+								printf("W%d ", i);
+							}
 						}
 						printf("\noppo's: ");
 						for (int i = 0; i < BLOCKNUM / 2; i++) {
-							printf("b%d ", user2[i]);
-							printf("w%d ", user2[i + 12]);
+							if (user2[i] == 1) {
+								printf("(B) ");
+							}
+							else if (user2[i] == 2) {
+								printf("B%d ", i);
+							}
+							if (user2[i + 12] == 1) {
+								printf("(W) ", i);
+							}
+							else if (user2[i + 12] == 1) {
+								printf("W%d ", i);
+							}
 						}
 						printf("\n");
 						if (userstatus == 1) {
@@ -207,13 +221,27 @@ void *run_game(void *arg) {
 					else if (userstatus >= 4) {
 						printf("yours: ");
 						for (int i = 0; i < BLOCKNUM / 2; i++) {
-							printf("b%d ", user2[i]);
-							printf("w%d ", user2[i + 12]);
+							if (user2[i] == 1 || user2[i] == 2) {
+								printf("B%d ", i);
+							}
+							if (user2[i + 12] == 1 || user2[i + 12] == 2) {
+								printf("W%d ", i);
+							}
 						}
 						printf("\noppo's: ");
 						for (int i = 0; i < BLOCKNUM / 2; i++) {
-							printf("b%d ", user1[i]);
-							printf("w%d ", user1[i + 12]);
+							if (user1[i] == 1) {
+								printf("(B) ");
+							}
+							else if (user1[i] == 2) {
+								printf("B%d ", i);
+							}
+							if (user1[i + 12] == 1) {
+								printf("(W) ");
+							}
+							else if (user1[i + 12] == 2) {
+								printf("W%d ", i);
+							}
 						}
 						printf("\n");
 						if (userstatus == 4) {
@@ -332,12 +360,12 @@ int proc_rcv(struct q_entry *rcv) {
 	{
 	case USERENTERED:
 		pthread_mutex_lock(&mutex);
+		sleep(2);
 		printf("%d 님이 입장했습니다.\n", rcv->message);
 		pthread_mutex_unlock(&mutex);
 		break;
 	case MEMBERCNT:
 		pthread_mutex_lock(&mutex);
-		sleep(2);
 		printf("현재 멤버: %d\n", rcv->message);
 		if (rcv->message > 1) {
 			rcv_signal = USERFULL;

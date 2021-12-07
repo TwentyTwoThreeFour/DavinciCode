@@ -14,7 +14,7 @@
 #define MAXOBN 32
 #define MAXINDEX 4
 #define MAXSIGN 10
-#define BLOCKNUM 26
+#define BLOCKNUM 24
 
 struct q_entry {
 	long mtype;

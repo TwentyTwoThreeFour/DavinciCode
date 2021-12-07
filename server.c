@@ -9,9 +9,9 @@
 
 // to client signal
 #define USERENTERED 1		// 유저 입장
-#define MEMBERCNT 2
-#define STARTED 3
-#define TURN 4
+#define MEMBERCNT 2			// 인원 수 알림
+#define STARTED 3			// 시작 알림
+#define TURN 4				// 턴 알림
 
 // from client signal
 #define SNDPID 11
@@ -20,8 +20,6 @@
 #define SELECTBLOCK 14
 #define GUESSBLOCK 15
 #define TURNCHANGE 16
-
-
 
 void *rcv_thread(void *arg);
 void *snd_thread(void *arg);
@@ -44,7 +42,7 @@ int msg;
 long rcv_signal = 0;
 
 // blocks
-int blocks[BLOCKNUM]; // 0 ~ 11: black, 12 ~ 23: white, 24: blackjoker, 25: whitejoker
+int blocks[BLOCKNUM]; // 0 ~ 11: black, 12 ~ 23: white
 int user1[BLOCKNUM];
 int user2[BLOCKNUM];
 int userstatus = 1; // 0: 시작 전, user1[1:해당 턴, 2: 블록 선택, 3: 상대 블록 선택] user2:[4: 해당 턴, 5: 블록 선택, 6: 상대 블록 선택]

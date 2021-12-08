@@ -24,4 +24,5 @@ struct q_entry {
 	int user1[BLOCKNUM];
 	int user2[BLOCKNUM];
 	int userstatus;
+	int gameover;
 };

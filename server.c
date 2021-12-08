@@ -12,6 +12,7 @@
 #define MEMBERCNT 2			// 인원 수 알림
 #define STARTED 3			// 시작 알림
 #define TURN 4				// 턴 알림
+#define TERMINATED 5		// 종료 알림
 
 // from client signal
 #define SNDPID 11
@@ -20,6 +21,9 @@
 #define SELECTBLOCK 14
 #define GUESSBLOCK 15
 #define TURNCHANGE 16
+#define BLOCKCHECK 17
+#define GAMEOVER 18
+#define REPICK 19
 
 void *rcv_thread(void *arg);
 void *snd_thread(void *arg);
@@ -30,6 +34,7 @@ char *substr(int s, int e, char *str);
 int setting_block(int pid, int select);
 int select_block(int pid, int select);
 int open_block(int pid, int select);
+int check_block(int pid);
 
 pthread_mutex_t mutex;
 // users
@@ -46,6 +51,7 @@ int blocks[BLOCKNUM]; // 0 ~ 11: black, 12 ~ 23: white
 int user1[BLOCKNUM];
 int user2[BLOCKNUM];
 int userstatus = 1; // 0: 시작 전, user1[1:해당 턴, 2: 블록 선택, 3: 상대 블록 선택] user2:[4: 해당 턴, 5: 블록 선택, 6: 상대 블록 선택]
+int gameover = 0;
 
 int main(void) {
 	int pid;
@@ -134,8 +140,9 @@ void *snd_thread(void *arg) {
 		if (rcv_signal != 0) {
 			s_entry.mtype = (long)rcv_signal;
 			s_entry.message = msg;
+			s_entry.gameover = gameover;
 
-			if (rcv_signal == TURN) {
+			if (rcv_signal == TURN || rcv_signal == TERMINATED) {
 				if (userstatus < 4) {
 					s_entry.pid = member[0];
 				}
@@ -171,10 +178,10 @@ int proc_rcv(struct q_entry *rcv) {
 	 * SELECTBLOCK: 게임 중 블록 색 선정
 	 * 
 	 * send signal
-	 * 1: 입장한 client
-	 * 2: 현재 인원
-	 * 3: 게임 시작
-	 * 4: 턴 시작 */
+	 * USERENTERED: 입장한 client
+	 * MEMBERCNT: 현재 인원
+	 * STARTED: 게임 시작
+	 * TURN: 턴 시작 */
 	switch (rcv->mtype)
 	{
 	case SNDPID:
@@ -223,9 +230,9 @@ int proc_rcv(struct q_entry *rcv) {
 		else if (rcv->userstatus == 4) {
 			userstatus = 5;
 		}
-
 		rcv_signal = TURN;
 		pthread_mutex_unlock(&mutex);
+		break;
 	case GUESSBLOCK:
 		pthread_mutex_lock(&mutex);
 		msg = open_block(rcv->pid, rcv->message);
@@ -237,6 +244,26 @@ int proc_rcv(struct q_entry *rcv) {
 		}
 		rcv_signal = TURN;
 		pthread_mutex_unlock(&mutex);
+		break;
+	case REPICK:
+		pthread_mutex_lock(&mutex);
+		if (rcv->userstatus == 3) {
+			userstatus = 2;
+		}
+		else if (rcv->userstatus == 6) {
+			userstatus = 5;
+		}
+		rcv_signal = TURN;
+		pthread_mutex_unlock(&mutex);
+		break;
+	case BLOCKCHECK:
+		pthread_mutex_lock(&mutex);
+		userstatus = rcv->userstatus;
+		msg = 3;
+		gameover = check_block(rcv->pid);
+		rcv_signal = TURN;
+		pthread_mutex_unlock(&mutex);
+		break;
 	case TURNCHANGE:
 		pthread_mutex_lock(&mutex);
 		if (rcv->userstatus == 3) {
@@ -246,6 +273,12 @@ int proc_rcv(struct q_entry *rcv) {
 			userstatus = 1;
 		}
 		rcv_signal = TURN;
+		pthread_mutex_unlock(&mutex);
+		break;
+	case GAMEOVER:
+		pthread_mutex_lock(&mutex);
+		userstatus = rcv->userstatus;
+		rcv_signal = TERMINATED;
 		pthread_mutex_unlock(&mutex);
 	default:
 		break;
@@ -343,6 +376,7 @@ int select_block(int pid, int select) {
 	return -1;
 }
 
+// 1: 맞춤, 2: 틀림
 int open_block(int pid, int select) {
 	if (pid == member[0]) {
 		if (user2[select] == 1) {
@@ -362,4 +396,23 @@ int open_block(int pid, int select) {
 			return 2;
 		}
 	}
+}
+
+// 0: 남은 블록이 존재함, 1: 다 맞춤
+int check_block(int pid) {
+	if (pid == member[0]) {
+		for (int i = 0; i < BLOCKNUM; i++) {
+			if (user2[i] == 1) {
+				return 0;
+			}
+		}
+	}
+	else if (pid == member[1]) {
+		for (int i = 0; i < BLOCKNUM; i++) {
+			if (user1[i] == 1) {
+				return 0;
+			}
+		}
+	}
+	return 1;
 }

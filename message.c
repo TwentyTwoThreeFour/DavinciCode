@@ -8,6 +8,7 @@
 #define MEMBERCNT 2
 #define STARTED 3
 #define TURN 4
+#define TERMINATED 5
 
 // to server signal
 #define SNDPID 11
@@ -16,6 +17,9 @@
 #define SELECTBLOCK 14
 #define GUESSBLOCK 15
 #define TURNCHANGE 16
+#define BLOCKCHECK 17
+#define GAMEOVER 18
+#define REPICK 19
 
 // internal signal
 #define USERFULL 21
@@ -39,6 +43,7 @@ int blocks[BLOCKNUM]; // 0 ~ 11: black, 12 ~ 23: white, 24: blackjoker, 25: whit
 int user1[BLOCKNUM];
 int user2[BLOCKNUM];
 int userstatus;
+int gameover;
 
 int main() {
 	int signal, select;
@@ -208,14 +213,23 @@ void *run_game(void *arg) {
 							}
 						}
 						else if (userstatus == 3) {
-							if (msg == 1) {
-								printf("축하합니다! 정답입니다!\n");
+							if (msg != 3) {
+								rcv_signal = BLOCKCHECK;
 							}
-							else if (msg == 2) {
-								printf("아쉽네요.. 틀렸습니다.\n");
+							if (gameover == 0) {
+								if (msg == 1) {
+									printf("축하합니다! 정답입니다!\n");
+									rcv_signal = REPICK;
+								}
+								else if (msg == 2) {
+									printf("아쉽네요.. 틀렸습니다.\n");
+									printf("턴이 상대에게로 넘어갑니다.\n");
+									rcv_signal = TURNCHANGE;
+								}
 							}
-							printf("턴이 상대에게로 넘어갑니다.\n");
-							rcv_signal = TURNCHANGE;
+							else if (gameover == 1) {
+								rcv_signal = GAMEOVER;
+							}
 						}
 					}
 					else if (userstatus >= 4) {
@@ -277,19 +291,38 @@ void *run_game(void *arg) {
 							}
 						}
 						else if (userstatus == 6) {
-							if (msg == 1) {
-								printf("축하합니다! 정답입니다!\n");
+							if (msg != 3) {
+								rcv_signal = BLOCKCHECK;
 							}
-							else if (msg == 2) {
-								printf("아쉽네요.. 틀렸습니다.\n");
+							if (gameover == 0) {
+								if (msg == 1) {
+									printf("축하합니다! 정답입니다!\n");
+									rcv_signal = REPICK;
+								}
+								else if (msg == 2) {
+									printf("아쉽네요.. 틀렸습니다.\n");
+									printf("턴이 상대에게로 넘어갑니다.\n");
+									rcv_signal = TURNCHANGE;
+								}
 							}
-							printf("턴이 상대에게로 넘어갑니다.\n");
-							rcv_signal = TURNCHANGE;
+							else if (gameover == 1) {
+								rcv_signal = GAMEOVER;
+							}
 						}
 					}
 				}
 				else {
 				}
+			break;
+			case TERMINATED:
+				if (pid == getpid()) {
+					printf("축하합니다! 승리했습니다!\n");
+				}
+				else {
+					printf("아쉽습니다. 패배했습니다.\n");
+				}
+				printf("게임이 종료되었습니다.\n");
+			break;
 			default:
 				break;
 			}
@@ -345,6 +378,7 @@ void *snd_thread(void *arg) {
 				printf("send complete sig: %d\n", rcv_signal);
 			}
 			rcv_signal = SIGINIT;
+			// msg = 0;
 		}
 		pthread_mutex_unlock(&mutex);
 	}
@@ -382,6 +416,7 @@ int proc_rcv(struct q_entry *rcv) {
 		userstatus = rcv->userstatus;
 		pid = rcv->pid;
 		msg = rcv->message;
+		gameover = rcv->gameover;
 		memcpy(blocks, rcv->blocks, sizeof(rcv->blocks));
 		memcpy(user1, rcv->user1, sizeof(rcv->user1));
 		memcpy(user2, rcv->user2, sizeof(rcv->user2));

@@ -25,6 +25,7 @@
 #define USERFULL 21
 #define GAMESTART 22
 #define PLAY 23
+#define EXIT 24
 
 void *run_game(void *arg);
 void *rcv_thread(void *arg);
@@ -213,13 +214,10 @@ void *run_game(void *arg) {
 							}
 						}
 						else if (userstatus == 3) {
-							if (msg != 3) {
-								rcv_signal = BLOCKCHECK;
-							}
 							if (gameover == 0) {
 								if (msg == 1) {
 									printf("축하합니다! 정답입니다!\n");
-									rcv_signal = REPICK;
+									rcv_signal = BLOCKCHECK;
 								}
 								else if (msg == 2) {
 									printf("아쉽네요.. 틀렸습니다.\n");
@@ -290,14 +288,11 @@ void *run_game(void *arg) {
 								}
 							}
 						}
-						else if (userstatus == 6) {
-							if (msg != 3) {
-								rcv_signal = BLOCKCHECK;
-							}
+						else if (userstatus == 6) { 
 							if (gameover == 0) {
 								if (msg == 1) {
 									printf("축하합니다! 정답입니다!\n");
-									rcv_signal = REPICK;
+									rcv_signal = BLOCKCHECK;
 								}
 								else if (msg == 2) {
 									printf("아쉽네요.. 틀렸습니다.\n");
@@ -313,8 +308,8 @@ void *run_game(void *arg) {
 				}
 				else {
 				}
-			break;
-			case TERMINATED:
+				break;
+			case EXIT:
 				if (pid == getpid()) {
 					printf("축하합니다! 승리했습니다!\n");
 				}
@@ -322,7 +317,8 @@ void *run_game(void *arg) {
 					printf("아쉽습니다. 패배했습니다.\n");
 				}
 				printf("게임이 종료되었습니다.\n");
-			break;
+				exit(0);
+				break;
 			default:
 				break;
 			}
@@ -421,6 +417,12 @@ int proc_rcv(struct q_entry *rcv) {
 		memcpy(user1, rcv->user1, sizeof(rcv->user1));
 		memcpy(user2, rcv->user2, sizeof(rcv->user2));
 		rcv_signal = PLAY;
+		pthread_mutex_unlock(&mutex);
+		break;
+	case TERMINATED:
+		pthread_mutex_lock(&mutex);
+		pid = rcv->pid;
+		rcv_signal = EXIT;
 		pthread_mutex_unlock(&mutex);
 		break;
 	default:

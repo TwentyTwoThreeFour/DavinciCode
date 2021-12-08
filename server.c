@@ -258,9 +258,17 @@ int proc_rcv(struct q_entry *rcv) {
 		break;
 	case BLOCKCHECK:
 		pthread_mutex_lock(&mutex);
-		userstatus = rcv->userstatus;
-		msg = 3;
-		gameover = check_block(rcv->pid);
+		if ((gameover = check_block(rcv->pid)) == 1) {
+			userstatus = rcv->userstatus;
+		}
+		else {
+			if (rcv->userstatus == 3) {
+				userstatus = 2;
+			}
+			else if (rcv->userstatus == 6) {
+				userstatus = 5;
+			}
+		}
 		rcv_signal = TURN;
 		pthread_mutex_unlock(&mutex);
 		break;

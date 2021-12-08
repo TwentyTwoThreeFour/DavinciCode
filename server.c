@@ -5,78 +5,59 @@
 #define CTHREAD_NUM 2
 #define QUEUE_NUM 2
 
-#define SIGINIT 0			// signal 초기화
-
-// to client signal
-#define USERENTERED 1		// 유저 입장
-#define MEMBERCNT 2			// 인원 수 알림
-#define STARTED 3			// 시작 알림
-#define TURN 4				// 턴 알림
-#define TERMINATED 5		// 종료 알림
-
-// from client signal
-#define SNDPID 11
-#define READY 12
-#define BLOCKCOLOR 13
-#define SELECTBLOCK 14
-#define GUESSBLOCK 15
-#define TURNCHANGE 16
-#define BLOCKCHECK 17
-#define GAMEOVER 18
-#define REPICK 19
+void init_blocks(void);
 
 void *rcv_thread(void *arg);
 void *snd_thread(void *arg);
-int warn(char *s);
-int init_squeue(key_t skey);
-int proc_rcv(struct q_entry *rcv);
-char *substr(int s, int e, char *str);
+
+int proc_clientmsg(struct q_entry *rcv);
+
 int setting_block(int pid, int select);
 int select_block(int pid, int select);
 int open_block(int pid, int select);
 int check_block(int pid);
 
 pthread_mutex_t mutex;
-// users
-int memcnt = 0;
-int member[3];
-int readycnt = 0;
+
+// user manage
+int memcnt = 0;			// member count
+int member[3];			// member pids
+int readycnt = 0;		// ready count
 
 // message
 int msg;
-long rcv_signal = 0;
+long rcv_signal = 0;	// 1 ~ 10: to client, 11 ~ 20: from client
 
 // blocks
-int blocks[BLOCKNUM]; // 0 ~ 11: black, 12 ~ 23: white
-int user1[BLOCKNUM];
-int user2[BLOCKNUM];
-int userstatus = 1; // 0: 시작 전, user1[1:해당 턴, 2: 블록 선택, 3: 상대 블록 선택] user2:[4: 해당 턴, 5: 블록 선택, 6: 상대 블록 선택]
-int gameover = 0;
+int blocks[BLOCKNUM];	// 0 ~ 11: BlackBlock, 12 ~ 23: WhiteBlock
+int user1[BLOCKNUM];	// user1 hands
+int user2[BLOCKNUM];	// user2 hands
+
+// game manage
+// <userstatus>
+// user1:[1: 해당 턴, 2: 블록 선택, 3: 상대 블록 선택]
+// user2:[4: 해당 턴, 5: 블록 선택, 6: 상대 블록 선택]
+int userstatus = 1;
+int gameover = 0;	// 1: 게임 종료, 0: 게임 재개
 
 int main(void) {
 	int pid;
-	pthread_t ct_id[CTHREAD_NUM], st_id;				// thread identifier
+	pthread_t ct_id[CTHREAD_NUM], st_id;			// thread identifier
 	key_t ckey[] = {CQKEY + 1, CQKEY + 2};			// rcv queue key
 	key_t skey[] = {SQKEY + 1, SQKEY + 2};			// snd queue key
 	
-
 	printf("Davinci Code Server Launch...\n");
-	for (int i = 0; i < BLOCKNUM; i++) {
-		blocks[i] = 1;
-	} 
-	memset(user1, 0, sizeof(user1));
-	memset(user2, 0, sizeof(user2));
-	pthread_mutex_init(&mutex, NULL);
+	init_blocks();
 	
-	// rcv thread create
+	// thread setting
+	pthread_mutex_init(&mutex, NULL);
+
 	for (int i = 0; i < CTHREAD_NUM; i++) {
 		if (pthread_create(&(ct_id[i]), NULL, rcv_thread, (void*)(&ckey[i])) != 0) {
 			perror("thread create error");
 			return -1;
 		}
 	}
-
-	// snd thread create
 	if (pthread_create(&st_id, NULL, snd_thread, (void*)skey) != 0) {
 		perror("thread create error");
 		return -1;
@@ -96,7 +77,15 @@ int main(void) {
 	}
 
 	pthread_mutex_destroy(&mutex);
-	exit(pid != -1 ? 0 : 1);
+	exit(0);
+}
+
+void init_blocks(void) {
+	for (int i = 0; i < BLOCKNUM; i++) {
+		blocks[i] = 1;
+	} 
+	memset(user1, 0, sizeof(user1));
+	memset(user2, 0, sizeof(user2));
 }
 
 void *rcv_thread(void *arg) {
@@ -114,7 +103,7 @@ void *rcv_thread(void *arg) {
 			perror("msgrcv failed");
 		}
 		else {
-			proc_rcv(&r_entry);
+			proc_clientmsg(&r_entry);
 		}
 	}
 }
@@ -125,12 +114,14 @@ void *snd_thread(void *arg) {
 	key_t skey[QUEUE_NUM];
 	int s_qid[QUEUE_NUM];
 	
+	// key setting
 	for (int i = 0; i < QUEUE_NUM; i++) {
 		skey[i] = ((key_t*)arg)[i];
 	}
 
+	// init queue
 	for (int i = 0; i < QUEUE_NUM; i++) {
-		if ((s_qid[i] = init_squeue(skey[i])) == -1) {
+		if ((s_qid[i] = msgget(skey[i], IPC_CREAT|QPERM)) == -1) {
 			exit(1);
 		}
 	}
@@ -138,10 +129,12 @@ void *snd_thread(void *arg) {
 	for (;;) {
 		pthread_mutex_lock(&mutex);
 		if (rcv_signal != 0) {
+			// msg setting
 			s_entry.mtype = (long)rcv_signal;
 			s_entry.message = msg;
 			s_entry.gameover = gameover;
 
+			// signal이 TURN or TERMINATED일 경우에만 해당 msg setting
 			if (rcv_signal == TURN || rcv_signal == TERMINATED) {
 				if (userstatus < 4) {
 					s_entry.pid = member[0];
@@ -154,6 +147,7 @@ void *snd_thread(void *arg) {
 				memcpy(s_entry.user1, user1, sizeof(user1));
 				memcpy(s_entry.user2, user2, sizeof(user2));
 			}
+			// snd for clients
 			for (int i = 0; i < QUEUE_NUM; i++) {
 				if (msgsnd(s_qid[i], &s_entry, sizeof(struct q_entry), 0) == -1) {
 					perror("msgsnd failed");
@@ -163,6 +157,7 @@ void *snd_thread(void *arg) {
 					printf("send complete: %d\n", s_entry.mtype);
 				}
 			}
+			// variable init
 			rcv_signal = SIGINIT;
 			readycnt = 0;
 		}
@@ -170,18 +165,7 @@ void *snd_thread(void *arg) {
 	}
 }
 
-int proc_rcv(struct q_entry *rcv) {
-	/* receive signal
-	 * SNDPID: 클라이언트 진입 
-	 * READY: 준비 완료 여부
-	 * BLOCKCOLOR: 초기 블록 색 선정
-	 * SELECTBLOCK: 게임 중 블록 색 선정
-	 * 
-	 * send signal
-	 * USERENTERED: 입장한 client
-	 * MEMBERCNT: 현재 인원
-	 * STARTED: 게임 시작
-	 * TURN: 턴 시작 */
+int proc_clientmsg(struct q_entry *rcv) {
 	switch (rcv->mtype)
 	{
 	case SNDPID:
@@ -245,17 +229,6 @@ int proc_rcv(struct q_entry *rcv) {
 		rcv_signal = TURN;
 		pthread_mutex_unlock(&mutex);
 		break;
-	case REPICK:
-		pthread_mutex_lock(&mutex);
-		if (rcv->userstatus == 3) {
-			userstatus = 2;
-		}
-		else if (rcv->userstatus == 6) {
-			userstatus = 5;
-		}
-		rcv_signal = TURN;
-		pthread_mutex_unlock(&mutex);
-		break;
 	case BLOCKCHECK:
 		pthread_mutex_lock(&mutex);
 		if ((gameover = check_block(rcv->pid)) == 1) {
@@ -293,25 +266,6 @@ int proc_rcv(struct q_entry *rcv) {
 	}
 
 	printf("signal: %ld msg: %d pid: %d\n", rcv->mtype, rcv->message, rcv->pid);
-}
-
-char *substr(int s, int e, char *str) {
-	char *new = (char *)malloc(sizeof(char)*(e-s+2));
-	strncpy(new, str+s, e-s+1);
-}
-
-int warn(char *s) {
-	fprintf(stderr, "warning: %s\n", s);
-}
-
-int init_squeue(key_t skey) {
-	int queue_id;
-
-	if ((queue_id = msgget(skey, IPC_CREAT|QPERM)) == -1) {
-		perror("msgget failed");
-	}
-	
-	return (queue_id);
 }
 
 int setting_block(int pid, int select) {
@@ -361,12 +315,13 @@ int setting_block(int pid, int select) {
 int select_block(int pid, int select) {
 	srand(time(NULL));
 	int tmp;
+	// select가 1이면 0~11, 2이면 12~23 사이의 숫자 생성
 	if (pid == member[0]) {
 		for (;;) {
 			tmp = rand() % 12 + (12 * (select - 1));
-			if (blocks[tmp] == 1) {
-				blocks[tmp] = 0;
-				user1[tmp] = 1;
+			if (blocks[tmp] == HAVE) {
+				blocks[tmp] = NONE;
+				user1[tmp] = HAVE;
 				return tmp;
 			}
 		}
@@ -374,9 +329,9 @@ int select_block(int pid, int select) {
 	else if (pid == member[1]) {
 		for (;;) {
 			tmp = rand() % 12 + (12 * (select - 1));
-			if (blocks[tmp] == 1) {
-				blocks[tmp] = 0;
-				user2[tmp] = 1;
+			if (blocks[tmp] == HAVE) {
+				blocks[tmp] = NONE;
+				user2[tmp] = HAVE;
 				return tmp;
 			}
 		}
@@ -387,8 +342,8 @@ int select_block(int pid, int select) {
 // 1: 맞춤, 2: 틀림
 int open_block(int pid, int select) {
 	if (pid == member[0]) {
-		if (user2[select] == 1) {
-			user2[select] = 2;
+		if (user2[select] == HAVE) {
+			user2[select] = OPEN;
 			return 1;
 		}
 		else if (user2[select] == 0){
@@ -396,8 +351,8 @@ int open_block(int pid, int select) {
 		}
 	}
 	else if (pid == member[1]) {
-		if (user1[select] == 1) {
-			user1[select] = 2;
+		if (user1[select] == HAVE) {
+			user1[select] = OPEN;
 			return 1;
 		}
 		else if (user1[select] == 0) {
@@ -410,14 +365,14 @@ int open_block(int pid, int select) {
 int check_block(int pid) {
 	if (pid == member[0]) {
 		for (int i = 0; i < BLOCKNUM; i++) {
-			if (user2[i] == 1) {
+			if (user2[i] == HAVE) {
 				return 0;
 			}
 		}
 	}
 	else if (pid == member[1]) {
 		for (int i = 0; i < BLOCKNUM; i++) {
-			if (user1[i] == 1) {
+			if (user1[i] == HAVE) {
 				return 0;
 			}
 		}

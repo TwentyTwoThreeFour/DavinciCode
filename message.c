@@ -1,42 +1,14 @@
 #include "q.h"
 
-
-#define SIGINIT 0			// signal 초기화
-
-// from server signal
-#define USERENTERED 1		// 유저 입장
-#define MEMBERCNT 2
-#define STARTED 3
-#define TURN 4
-#define TERMINATED 5
-
-// to server signal
-#define SNDPID 11
-#define READY 12
-#define BLOCKCOLOR 13
-#define SELECTBLOCK 14
-#define GUESSBLOCK 15
-#define TURNCHANGE 16
-#define BLOCKCHECK 17
-#define GAMEOVER 18
-#define REPICK 19
-
-// internal signal
-#define USERFULL 21
-#define GAMESTART 22
-#define PLAY 23
-#define EXIT 24
-
 void *run_game(void *arg);
 void *rcv_thread(void *arg);
 void *snd_thread(void *arg);
-int warn(char *s);
-int proc_rcv(struct q_entry *msg);
+
+int proc_servermsg(struct q_entry *msg);
 
 pthread_mutex_t mutex;
 int msg;
- // 1 ~ 10: from server, 11 ~ 20: to server, 21 ~ 30: interface
-long rcv_signal = 0;
+long rcv_signal = 0;	// 1 ~ 10: from server, 11 ~ 20: to server, 21 ~ 30: interface
 
 int turn = 0;
 int pid;
@@ -135,59 +107,65 @@ void *run_game(void *arg) {
 				}
 				break;
 			case GAMESTART:
-				printf("=====[블록 색 조합을 선택해주세요]=====\n");
-				printf("1. 흰색 4개\n");
-				printf("2. 흰색 3개, 검은색 1개\n");
-				printf("3. 흰색 2개, 검은색 2개\n");
-				printf("4. 흰색 1개, 검은색 3개\n");
-				printf("5. 검은색 4개\n");
-				printf("================================\n");
-				printf("선택: ");
-				scanf("%d", &blockcolor);
-				if (blockcolor >=1 && blockcolor <=5) {
-					msg = blockcolor;
-					rcv_signal = BLOCKCOLOR;
-				}
-				else {
-					printf("잘못 입력하셨습니다.\n");
-					continue;
+				for (;;) {
+					printf("=====[블록 색 조합을 선택해주세요]=====\n");
+					printf("1. 흰색 4개\n");
+					printf("2. 흰색 3개, 검은색 1개\n");
+					printf("3. 흰색 2개, 검은색 2개\n");
+					printf("4. 흰색 1개, 검은색 3개\n");
+					printf("5. 검은색 4개\n");
+					printf("=======================================\n");
+					printf("선택: ");
+					scanf("%d", &blockcolor);
+					if (blockcolor >=1 && blockcolor <=5) {
+						msg = blockcolor;
+						rcv_signal = BLOCKCOLOR;
+						break;
+					}
 				}
 				break;
 			case PLAY:
-				if (pid == getpid()) {
-					if (userstatus < 4) {
+				if (pid == getpid()) {		// 현재 턴에 해당하는 프로세스일 경우
+					if (userstatus < 4) {	// user1 이라면
+						printf("\n==================================\n");
 						printf("yours: ");
 						for (int i = 0; i < BLOCKNUM / 2; i++) {
-							if (user1[i] == 1 || user1[i] == 2) {
+							if (user1[i] == HAVE) {
+								printf("(B%d) ", i);
+							}
+							else if (user1[i] == OPEN) {
 								printf("B%d ", i);
 							}
-							if (user1[i + 12] == 1 || user1[i + 12] == 2) {
+							if (user1[i + 12] == HAVE) {
+								printf("(W%d) ", i);
+							}
+							else if (user1[i + 12] == OPEN) {
 								printf("W%d ", i);
 							}
-						}
+						}printf("\n---------------------------------");
 						printf("\noppo's: ");
 						for (int i = 0; i < BLOCKNUM / 2; i++) {
-							if (user2[i] == 1) {
+							if (user2[i] == HAVE) {
 								printf("(B) ");
 							}
-							else if (user2[i] == 2) {
+							else if (user2[i] == OPEN) {
 								printf("B%d ", i);
 							}
-							if (user2[i + 12] == 1) {
+							if (user2[i + 12] == HAVE) {
 								printf("(W) ", i);
 							}
-							else if (user2[i + 12] == 1) {
+							else if (user2[i + 12] == OPEN) {
 								printf("W%d ", i);
 							}
 						}
-						printf("\n");
+						printf("\n==================================\n");
 						if (userstatus == 1) {
 							for (;;) {
-								printf("--------------------------\n");
+								printf("\n---------------------------------\n");
 								printf("어떤 색의 블록을 가져오시겠습니까?\n");
 								printf("1. black\n");
 								printf("2. white\n");
-								printf("--------------------------\n");
+								printf("---------------------------------\n");
 								printf("입력: ");
 								scanf("%d", &blockcolor);
 								if (blockcolor == 1 || blockcolor == 2) {
@@ -199,11 +177,11 @@ void *run_game(void *arg) {
 						}
 						else if (userstatus == 2) {
 							for(;;) {
-								printf("--------------------------\n");
+								printf("\n---------------------------------\n");
 								printf("상대 블록을 선택해주세요\n");
 								printf("1. black(0 ~ 11)\n");
 								printf("2. white(12 ~ 23)\n");
-								printf("--------------------------\n");
+								printf("---------------------------------\n");
 								printf("입력: ");
 								scanf("%d", &oppoblock);
 								if (oppoblock >= 0 && oppoblock <= 23) {
@@ -216,12 +194,16 @@ void *run_game(void *arg) {
 						else if (userstatus == 3) {
 							if (gameover == 0) {
 								if (msg == 1) {
+									printf("\n---------------------------------\n");
 									printf("축하합니다! 정답입니다!\n");
+									printf("---------------------------------\n");
 									rcv_signal = BLOCKCHECK;
 								}
 								else if (msg == 2) {
+									printf("\n---------------------------------\n");
 									printf("아쉽네요.. 틀렸습니다.\n");
 									printf("턴이 상대에게로 넘어갑니다.\n");
+									printf("---------------------------------\n");
 									rcv_signal = TURNCHANGE;
 								}
 							}
@@ -230,39 +212,47 @@ void *run_game(void *arg) {
 							}
 						}
 					}
-					else if (userstatus >= 4) {
+					else if (userstatus >= 4) {		// user2 라면
+						printf("\n==================================\n");
 						printf("yours: ");
 						for (int i = 0; i < BLOCKNUM / 2; i++) {
-							if (user2[i] == 1 || user2[i] == 2) {
+							if (user2[i] == HAVE) {
+								printf("(B%d) ", i);
+							}
+							else if(user2[i] == OPEN) {
 								printf("B%d ", i);
 							}
-							if (user2[i + 12] == 1 || user2[i + 12] == 2) {
+							if (user2[i + 12] == HAVE) {
+								printf("(W%d) ", i);
+							}
+							else if(user2[i + 12] == OPEN) {
 								printf("W%d ", i);
 							}
 						}
+						printf("\n---------------------------------");
 						printf("\noppo's: ");
 						for (int i = 0; i < BLOCKNUM / 2; i++) {
-							if (user1[i] == 1) {
+							if (user1[i] == HAVE) {
 								printf("(B) ");
 							}
-							else if (user1[i] == 2) {
+							else if (user1[i] == OPEN) {
 								printf("B%d ", i);
 							}
-							if (user1[i + 12] == 1) {
+							if (user1[i + 12] == HAVE) {
 								printf("(W) ");
 							}
-							else if (user1[i + 12] == 2) {
+							else if (user1[i + 12] == OPEN) {
 								printf("W%d ", i);
 							}
 						}
-						printf("\n");
+						printf("\n==================================\n");
 						if (userstatus == 4) {
 							for (;;) {
-								printf("--------------------------\n");
+								printf("\n---------------------------------\n");
 								printf("어떤 색의 블록을 가져오시겠습니까?\n");
 								printf("1. black\n");
 								printf("2. white\n");
-								printf("--------------------------\n");
+								printf("---------------------------------\n");
 								printf("입력: ");
 								scanf("%d", &blockcolor);
 								if (blockcolor == 1 || blockcolor == 2) {
@@ -274,11 +264,11 @@ void *run_game(void *arg) {
 						}
 						else if (userstatus == 5) {
 							for(;;) {
-								printf("--------------------------\n");
+								printf("\n---------------------------------\n");
 								printf("상대 블록을 선택해주세요\n");
 								printf("1. black(0 ~ 11)\n");
 								printf("2. white(12 ~ 23)\n");
-								printf("--------------------------\n");
+								printf("---------------------------------\n");
 								printf("입력: ");
 								scanf("%d", &oppoblock);
 								if (oppoblock >= 0 && oppoblock <= 23) {
@@ -291,12 +281,16 @@ void *run_game(void *arg) {
 						else if (userstatus == 6) { 
 							if (gameover == 0) {
 								if (msg == 1) {
+									printf("\n---------------------------------\n");
 									printf("축하합니다! 정답입니다!\n");
+									printf("---------------------------------\n");
 									rcv_signal = BLOCKCHECK;
 								}
 								else if (msg == 2) {
+									printf("\n---------------------------------\n");
 									printf("아쉽네요.. 틀렸습니다.\n");
 									printf("턴이 상대에게로 넘어갑니다.\n");
+									printf("---------------------------------\n");
 									rcv_signal = TURNCHANGE;
 								}
 							}
@@ -311,10 +305,14 @@ void *run_game(void *arg) {
 				break;
 			case EXIT:
 				if (pid == getpid()) {
+					printf("\n---------------------------------\n");
 					printf("축하합니다! 승리했습니다!\n");
+					printf("---------------------------------\n");
 				}
 				else {
+					printf("\n---------------------------------\n");
 					printf("아쉽습니다. 패배했습니다.\n");
+					printf("---------------------------------\n");
 				}
 				printf("게임이 종료되었습니다.\n");
 				exit(0);
@@ -342,7 +340,7 @@ void *rcv_thread(void *arg) {
 			perror("msgrcv failed");
 		}
 		else {
-			proc_rcv(&r_entry);
+			proc_servermsg(&r_entry);
 		}
 	}
 }
@@ -371,7 +369,7 @@ void *snd_thread(void *arg) {
 				return (-1);
 			}
 			else {
-				printf("send complete sig: %d\n", rcv_signal);
+				printf("send complete sig: %d\n", rcv_signal);	// only debug
 			}
 			rcv_signal = SIGINIT;
 			// msg = 0;
@@ -380,7 +378,7 @@ void *snd_thread(void *arg) {
 	}
 }
 
-int proc_rcv(struct q_entry *rcv) {
+int proc_servermsg(struct q_entry *rcv) {
 	/* receive signal
 	 * USERENTERED: 유저 입장 알림
 	 * MEMBERCNT: 인원 현황 알림
@@ -428,8 +426,4 @@ int proc_rcv(struct q_entry *rcv) {
 	default:
 		break;
 	}
-}
-
-int warn(char *s) {
-	fprintf(stderr, "warning: %s\n", s);
 }

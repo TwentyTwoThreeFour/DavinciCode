@@ -4,7 +4,7 @@ void *run_game(void *arg);
 void *rcv_thread(void *arg);
 void *snd_thread(void *arg);
 
-int proc_servermsg(struct q_entry *msg);
+void proc_servermsg(struct q_entry *msg);
 
 pthread_mutex_t mutex;
 int msg;
@@ -12,9 +12,16 @@ long rcv_signal = 0;	// 1 ~ 10: from server, 11 ~ 20: to server, 21 ~ 30: interf
 
 int turn = 0;
 int pid;
+
+// blocks
 int blocks[BLOCKNUM]; // 0 ~ 11: black, 12 ~ 23: white, 24: blackjoker, 25: whitejoker
 int user1[BLOCKNUM];
 int user2[BLOCKNUM];
+
+// game manage
+// <userstatus>
+// user1:[1: 해당 턴, 2: 블록 선택, 3: 상대 블록 선택]
+// user2:[4: 해당 턴, 5: 블록 선택, 6: 상대 블록 선택]
 int userstatus;
 int gameover;
 
@@ -49,17 +56,15 @@ int main() {
 	printf("게임 입장 중...\n");
 	sleep(1);
 
-	// rcv thread create
+	// thread setting
 	if (pthread_create(&ct_id, NULL, rcv_thread, (void*)&skey) != 0) {
 		perror("thread create error");
 		return -1;
 	}
-	// snd thread create
 	if (pthread_create(&st_id, NULL, snd_thread, (void*)&ckey) != 0) {
 		perror("thread create error");
 		return -1;
 	}
-	// game thread create
 	if (pthread_create(&gm_id, NULL, run_game, NULL) != 0) {
 		perror("thread create error");
 		return -1;
@@ -152,7 +157,7 @@ void *run_game(void *arg) {
 								printf("B%d ", i);
 							}
 							if (user2[i + 12] == HAVE) {
-								printf("(W) ", i);
+								printf("(W) ");
 							}
 							else if (user2[i + 12] == OPEN) {
 								printf("W%d ", i);
@@ -336,7 +341,7 @@ void *rcv_thread(void *arg) {
 	}
 
 	for (;;) {
-		if ((mlen = msgrcv(r_qid, &r_entry, sizeof(struct q_entry), 0, MSG_NOERROR)) == -1) {
+		if ((mlen = msgrcv(r_qid, &r_entry, sizeof(struct q_entry) - sizeof(r_entry.mtype), 0, MSG_NOERROR)) == -1) {
 			perror("msgrcv failed");
 		}
 		else {
@@ -352,7 +357,7 @@ void *snd_thread(void *arg) {
 	int s_qid;
 
 	if ((s_qid = msgget(ckey, IPC_CREAT|QPERM)) == -1) {
-		return (-1);
+		exit(1);
 	}
 
 	for (;;) {
@@ -364,12 +369,15 @@ void *snd_thread(void *arg) {
 			s_entry.message = msg;
 			s_entry.userstatus = userstatus;
 
-			if (msgsnd(s_qid, &s_entry, sizeof(struct q_entry), 0) == -1) {
+			if (msgsnd(s_qid, &s_entry, sizeof(struct q_entry) - sizeof(s_entry.mtype), 0) == -1) {
 				perror("msgsnd failed");
-				return (-1);
+				exit(2);
 			}
 			else {
-				printf("send complete sig: %d\n", rcv_signal);	// only debug
+				printf("send complete sig: %ld\n", rcv_signal);	// only debug
+				if (rcv_signal == GAMEOVER) {
+					exit(0);
+				}
 			}
 			rcv_signal = SIGINIT;
 			// msg = 0;
@@ -378,7 +386,7 @@ void *snd_thread(void *arg) {
 	}
 }
 
-int proc_servermsg(struct q_entry *rcv) {
+void proc_servermsg(struct q_entry *rcv) {
 	/* receive signal
 	 * USERENTERED: 유저 입장 알림
 	 * MEMBERCNT: 인원 현황 알림
@@ -421,6 +429,7 @@ int proc_servermsg(struct q_entry *rcv) {
 		pthread_mutex_lock(&mutex);
 		pid = rcv->pid;
 		rcv_signal = EXIT;
+		exit(0);
 		pthread_mutex_unlock(&mutex);
 		break;
 	default:

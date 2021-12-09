@@ -10,7 +10,7 @@ void init_blocks(void);
 void *rcv_thread(void *arg);
 void *snd_thread(void *arg);
 
-int proc_clientmsg(struct q_entry *rcv);
+void proc_clientmsg(struct q_entry *rcv);
 
 int setting_block(int pid, int select);
 int select_block(int pid, int select);
@@ -99,7 +99,7 @@ void *rcv_thread(void *arg) {
 	}
 
 	for (;;) {
-		if ((mlen = msgrcv(r_qid, &r_entry, sizeof(struct q_entry), 0, MSG_NOERROR)) == -1) {
+		if ((mlen = msgrcv(r_qid, &r_entry, sizeof(struct q_entry) - sizeof(r_entry.mtype), 0, MSG_NOERROR)) == -1) {
 			perror("msgrcv failed");
 		}
 		else {
@@ -149,12 +149,12 @@ void *snd_thread(void *arg) {
 			}
 			// snd for clients
 			for (int i = 0; i < QUEUE_NUM; i++) {
-				if (msgsnd(s_qid[i], &s_entry, sizeof(struct q_entry), 0) == -1) {
+				if (msgsnd(s_qid[i], &s_entry, sizeof(struct q_entry) - sizeof(s_entry.mtype), 0) == -1) {
 					perror("msgsnd failed");
 					exit(3);
 				}
 				else {
-					printf("send complete: %d\n", s_entry.mtype);
+					printf("send complete: %ld\n", s_entry.mtype);
 				}
 			}
 			// variable init
@@ -165,7 +165,7 @@ void *snd_thread(void *arg) {
 	}
 }
 
-int proc_clientmsg(struct q_entry *rcv) {
+void proc_clientmsg(struct q_entry *rcv) {
 	switch (rcv->mtype)
 	{
 	case SNDPID:
@@ -359,6 +359,7 @@ int open_block(int pid, int select) {
 			return 2;
 		}
 	}
+	return -1;
 }
 
 // 0: 남은 블록이 존재함, 1: 다 맞춤

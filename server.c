@@ -157,6 +157,9 @@ void *snd_thread(void *arg) {
 					printf("send complete: %ld\n", s_entry.mtype);
 				}
 			}
+			if (rcv_signal == TERMINATED) {
+				exit(0);
+			}
 			// variable init
 			rcv_signal = SIGINIT;
 			readycnt = 0;

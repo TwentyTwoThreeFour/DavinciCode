@@ -375,9 +375,6 @@ void *snd_thread(void *arg) {
 			}
 			else {
 				printf("send complete sig: %ld\n", rcv_signal);	// only debug
-				if (rcv_signal == GAMEOVER) {
-					exit(0);
-				}
 			}
 			rcv_signal = SIGINIT;
 			// msg = 0;
@@ -429,7 +426,6 @@ void proc_servermsg(struct q_entry *rcv) {
 		pthread_mutex_lock(&mutex);
 		pid = rcv->pid;
 		rcv_signal = EXIT;
-		exit(0);
 		pthread_mutex_unlock(&mutex);
 		break;
 	default:

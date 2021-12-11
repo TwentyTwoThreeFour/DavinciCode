@@ -1,9 +1,19 @@
 CC=gcc
 
-all: client server
-
-client: message.c
+msg: msg.c
 	$(CC) -o $@ $< -lpthread
 
-server: server.c
+msgServer: msgServer.c
+	$(CC) -o $@ $< -lpthread
+
+shm: shm.c
+	$(CC) -o $@ $< -lpthread
+
+shmServer: shmServer.c
+	$(CC) -o $@ $< -lpthread
+
+pipe: pipe.c
+	$(CC) -o $@ $< -lpthread
+
+pipeServer: pipeServer.c
 	$(CC) -o $@ $< -lpthread

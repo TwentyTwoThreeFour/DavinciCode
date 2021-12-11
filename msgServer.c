@@ -1,6 +1,6 @@
 #include <string.h>
 #include <time.h>
-#include "q.h"
+#include "msg.h"
 
 #define CTHREAD_NUM 2
 #define QUEUE_NUM 2

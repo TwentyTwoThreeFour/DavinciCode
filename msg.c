@@ -1,4 +1,4 @@
-#include "q.h"
+#include "msg.h"
 
 void *run_game(void *arg);
 void *rcv_thread(void *arg);

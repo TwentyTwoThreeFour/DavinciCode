@@ -1,11 +1,13 @@
 CC=gcc
 
+all: msg msgServer shm shmServer pipe pipeServer
+
 msg: msg.c
 	$(CC) -o $@ $< -lpthread
 
 msgServer: msgServer.c
 	$(CC) -o $@ $< -lpthread
-
+	
 shm: shm.c
 	$(CC) -o $@ $< -lpthread
 
